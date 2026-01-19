@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 0 0% 0%;
+
+        --card: 0 0% 100%;
+        --card-foreground: 0 0% 0%;
+
+        --popover: 0 0% 100%;
+        --popover-foreground: 0 0% 0%;
+
+        --primary: 84 100% 73%;
+        /* Lime-ish */
+        --primary-foreground: 0 0% 0%;
+
+        --secondary: 359 100% 80%;
+        /* Pink-ish */
+        --secondary-foreground: 0 0% 0%;
+
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+
+        --accent: 154 91% 75%;
+        /* Mint-ish */
+        --accent-foreground: 222.2 47.4% 11.2%;
+
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+
+        --border: 0 0% 0%;
+        --input: 0 0% 0%;
+        --ring: 0 0% 0%;
+
+        --radius: 0.5rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+}
+
+@layer utilities {
+    .neo-brutal {
+        border: 3px solid black;
+        box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+    }
+
+    .neo-brutal-hover {
+        transition: all 0.2s ease-in-out;
+    }
+
+    .neo-brutal-hover:hover {
+        transform: translate(-2px, -2px);
+        box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+    }
+
+    .neo-brutal-hover:active {
+        transform: translate(0, 0);
+        box-shadow: 0px 0px 0px 0px rgba(0, 0, 0, 1);
+    }
+
+    .border-3 {
+        border-width: 3px;
+    }
+
+    .shadow-neo {
+        box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+    }
+
+    .shadow-neo-hover {
+        box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+    }
+}
