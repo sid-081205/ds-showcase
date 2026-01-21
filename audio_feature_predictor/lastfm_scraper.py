@@ -117,7 +117,7 @@ class LastFMScraper:
         # Take top N tags by count
         top_tags = sorted(tags, key=lambda x: x[1], reverse=True)[:top_n]
         
-        # 标准化: 空格替换成下划线，匹配训练数据格式
+        # Normalize: Replace spaces with underscores to match training data format
         normalized = [t[0].replace(' ', '_').replace('-', '_') for t in top_tags]
         return ', '.join(normalized)
     
@@ -293,26 +293,26 @@ def fetch_linkin_park_discography(api_key):
 # ============================================
 
 if __name__ == "__main__":
-    # 从 config.py 读取 API key
+    # check config.py for API key
     try:
         from config import LASTFM_API_KEY
     except ImportError:
-        print("❌ 找不到 config.py！")
-        print("   请创建 config.py 并填入：")
-        print('   LASTFM_API_KEY = "你的密钥"')
+        print("❌ config.py not found!")
+        print("   Please create config.py and fill in:")
+        print('   LASTFM_API_KEY = "Your API Key"')
         exit(1)
     
-    if LASTFM_API_KEY == "在这里填你的Last.fm API Key":
-        print("❌ 请先在 config.py 里填入你的 Last.fm API Key")
+    if LASTFM_API_KEY == "在这里填你的Last.fm API Key" or LASTFM_API_KEY == "Paste your keys here":
+        print("❌ Please fill in your Last.fm API Key in config.py")
         exit(1)
     
-    print("✅ 已读取 API Key")
+    print("✅ API Key loaded")
     print("\n" + "="*50)
-    print("开始爬取 Taylor Swift...")
+    print("Starting crawl for Taylor Swift...")
     print("="*50)
     fetch_taylor_swift_discography(LASTFM_API_KEY)
     
     print("\n" + "="*50)
-    print("开始爬取 Linkin Park...")
+    print("Starting crawl for Linkin Park...")
     print("="*50)
     fetch_linkin_park_discography(LASTFM_API_KEY)

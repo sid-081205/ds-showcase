@@ -64,9 +64,9 @@ def analyze_tags(df):
 def create_features(df, vectorizer=None, max_features=300):
     """Convert tags to TF-IDF features"""
     
-    # 预处理：标准化 tags 格式
-    # 1. 去掉逗号后的空格
-    # 2. 统一用下划线替换空格和连字符
+    # Preprocessing: Normalize tags format
+    # 1. Remove spaces after commas
+    # 2. Replace spaces and hyphens with underscores
     def normalize_tags(tags_str):
         if pd.isna(tags_str):
             return ""
@@ -229,12 +229,12 @@ def main(csv_path, output_path='model_bundle.pkl'):
 
 
 if __name__ == "__main__":
-    # 从 config.py 读取 CSV 路径
+    # Read CSV path from config.py
     try:
         from config import MUSIC_INFO_CSV
         csv_path = MUSIC_INFO_CSV
     except ImportError:
         csv_path = "Music Info.csv"
     
-    print(f"📂 使用数据文件: {csv_path}")
+    print(f"📂 Using data file: {csv_path}")
     main(csv_path)

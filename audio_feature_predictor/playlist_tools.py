@@ -1,5 +1,5 @@
 """
-数据合并 + 歌单比较工具
+Data Merger + Playlist Comparison Tools
 """
 
 import pandas as pd
@@ -8,19 +8,19 @@ from pathlib import Path
 
 
 # ============================================
-# 1. 合并两个 CSV
+# 1. Merge Datasets
 # ============================================
 
 def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.csv"):
     """
-    合并两个数据集：
-    - csv_with_tags: 有 Last.fm tags 的那个 (Music Info.csv)
-    - csv_with_features: 有完整 audio features 的那个 (你的另一个 spotify csv)
+    Merge two datasets:
+    - csv_with_tags: The one with Last.fm tags (Music Info.csv)
+    - csv_with_features: The one with complete audio features (your other spotify csv)
     
-    合并逻辑：
-    1. 用 artist + track_name 做 key
-    2. 优先保留有 tags 的数据
-    3. 补充没有 tags 但有 audio features 的数据
+    Merge Logic:
+    1. Use artist + track_name as key
+    2. Prioritize keeping data with tags
+    3. Supplement data without tags but with audio features
     """
     
     print("Loading datasets...")
@@ -30,10 +30,10 @@ def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.cs
     print(f"  Tags dataset: {len(df_tags)} rows")
     print(f"  Features dataset: {len(df_features)} rows")
     
-    # 标准化列名（处理可能的命名差异）
+    # Normalize column names (handle possible naming differences)
     def normalize_columns(df):
         df.columns = df.columns.str.lower().str.strip()
-        # 常见的列名变体
+        # Common column name variations
         rename_map = {
             'track_name': 'name',
             'artist_name': 'artist',
@@ -47,9 +47,9 @@ def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.cs
     df_tags = normalize_columns(df_tags)
     df_features = normalize_columns(df_features)
     
-    # 创建合并 key
+    # Create merge key
     def create_key(df):
-        # 清理 artist 和 name，去除大小写和空格差异
+        # Clean artist and name, remove case and space differences
         artist = df['artist'].astype(str).str.lower().str.strip()
         name = df['name'].astype(str).str.lower().str.strip()
         return artist + "|||" + name
@@ -57,20 +57,20 @@ def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.cs
     df_tags['_merge_key'] = create_key(df_tags)
     df_features['_merge_key'] = create_key(df_features)
     
-    # 找出 df_features 中有但 df_tags 中没有的歌
+    # Find songs in df_features but not in df_tags
     existing_keys = set(df_tags['_merge_key'])
     new_songs = df_features[~df_features['_merge_key'].isin(existing_keys)]
     
     print(f"\n  Songs only in features dataset: {len(new_songs)}")
     print(f"  Songs with tags: {len(df_tags)}")
     
-    # 合并
-    # 对于 new_songs，tags 列设为空（之后按需爬取）
+    # Merge
+    # For new_songs, set tags column to empty (scrape later if needed)
     if 'tags' not in new_songs.columns:
         new_songs = new_songs.copy()
         new_songs['tags'] = ''
     
-    # 确保两个 df 有相同的列
+    # Ensure both dfs have same columns
     common_cols = list(set(df_tags.columns) & set(new_songs.columns))
     
     merged = pd.concat([
@@ -78,16 +78,16 @@ def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.cs
         new_songs[common_cols]
     ], ignore_index=True)
     
-    # 删除临时列
+    # Delete temporary column
     if '_merge_key' in merged.columns:
         merged = merged.drop(columns=['_merge_key'])
     
-    # 保存
+    # Save
     merged.to_csv(output_path, index=False)
     print(f"\n✅ Merged dataset saved to {output_path}")
     print(f"   Total rows: {len(merged)}")
     
-    # 统计
+    # Stats
     has_tags = merged['tags'].notna() & (merged['tags'] != '')
     print(f"   With tags: {has_tags.sum()}")
     print(f"   Without tags (need scraping): {(~has_tags).sum()}")
@@ -96,13 +96,13 @@ def merge_datasets(csv_with_tags, csv_with_features, output_path="merged_data.cs
 
 
 # ============================================
-# 2. 歌单比较
+# 2. Playlist Comparison
 # ============================================
 
 def load_playlist(source, model_bundle_path='model_bundle.pkl'):
     """
-    加载歌单，支持多种输入格式：
-    - CSV 文件路径
+    Load playlist, supports multiple input formats:
+    - CSV file path
     - DataFrame
     - List of dicts [{'artist': '...', 'track': '...'}, ...]
     """
@@ -121,46 +121,46 @@ def load_playlist(source, model_bundle_path='model_bundle.pkl'):
 def compare_playlists(playlist1, playlist2, name1="Playlist 1", name2="Playlist 2", 
                       model_bundle_path='model_bundle.pkl'):
     """
-    比较两个歌单的情绪特征
+    Compare emotional features of two playlists
     
     Args:
-        playlist1, playlist2: CSV路径 / DataFrame / dict list
-        name1, name2: 歌单名称（用于显示）
+        playlist1, playlist2: CSV path / DataFrame / dict list
+        name1, name2: Playlist names (for display)
     
     Returns:
-        比较结果 dict
+        Comparison result dict
     """
     import pickle
     
-    # 加载模型
+    # Load model
     with open(model_bundle_path, 'rb') as f:
         bundle = pickle.load(f)
     model = bundle['model']
     vectorizer = bundle['vectorizer']
     
-    # 加载歌单
+    # Load playlists
     df1 = load_playlist(playlist1)
     df2 = load_playlist(playlist2)
     
-    # 目标特征
+    # Target features
     target_features = ['valence', 'energy', 'danceability']
     
     def get_features(df):
-        """获取或预测 audio features"""
+        """Get or predict audio features"""
         results = {}
         
-        # 检查是否已有 audio features
+        # Check if audio features already exist
         has_features = all(f in df.columns for f in target_features)
         has_tags = 'tags' in df.columns
         
         if has_features:
-            # 直接用现有的
+            # Use existing features
             for f in target_features:
                 results[f] = df[f].mean()
             results['source'] = 'actual'
         elif has_tags:
-            # 用 tags 预测
-            # 标准化 tags 格式
+            # Predict using tags
+            # Normalize tags format
             def normalize_tags(tags_str):
                 if pd.isna(tags_str) or tags_str == "":
                     return ""
@@ -182,7 +182,7 @@ def compare_playlists(playlist1, playlist2, name1="Playlist 1", name2="Playlist 
     feat1 = get_features(df1)
     feat2 = get_features(df2)
     
-    # 计算差异
+    # Calculate difference
     comparison = {
         'playlist1': {'name': name1, 'tracks': len(df1), **feat1},
         'playlist2': {'name': name2, 'tracks': len(df2), **feat2},
@@ -193,7 +193,7 @@ def compare_playlists(playlist1, playlist2, name1="Playlist 1", name2="Playlist 
         diff = feat1[f] - feat2[f]
         comparison['difference'][f] = diff
     
-    # 情绪解读
+    # Emotion interpretation
     val_diff = comparison['difference']['valence']
     energy_diff = comparison['difference']['energy']
     
@@ -201,18 +201,18 @@ def compare_playlists(playlist1, playlist2, name1="Playlist 1", name2="Playlist 
     
     if abs(val_diff) > 0.1:
         if val_diff > 0:
-            interpretations.append(f"{name1} 比 {name2} 更积极/快乐 (valence +{val_diff:.2f})")
+            interpretations.append(f"{name1} is more positive/happy than {name2} (valence +{val_diff:.2f})")
         else:
-            interpretations.append(f"{name1} 比 {name2} 更消极/忧郁 (valence {val_diff:.2f})")
+            interpretations.append(f"{name1} is more negative/melancholic than {name2} (valence {val_diff:.2f})")
     
     if abs(energy_diff) > 0.1:
         if energy_diff > 0:
-            interpretations.append(f"{name1} 比 {name2} 更有能量 (energy +{energy_diff:.2f})")
+            interpretations.append(f"{name1} is more energetic than {name2} (energy +{energy_diff:.2f})")
         else:
-            interpretations.append(f"{name1} 比 {name2} 更平静/舒缓 (energy {energy_diff:.2f})")
+            interpretations.append(f"{name1} is calmer/more soothing than {name2} (energy {energy_diff:.2f})")
     
     if not interpretations:
-        interpretations.append("两个歌单情绪特征相似")
+        interpretations.append("Both playlists have similar emotional features")
     
     comparison['interpretation'] = interpretations
     
@@ -220,34 +220,34 @@ def compare_playlists(playlist1, playlist2, name1="Playlist 1", name2="Playlist 
 
 
 def print_comparison(comparison):
-    """打印比较结果"""
+    """Print comparison results"""
     p1 = comparison['playlist1']
     p2 = comparison['playlist2']
     
     print("\n" + "=" * 60)
-    print("🎵 歌单情绪比较")
+    print("🎵 Playlist Emotional Comparison")
     print("=" * 60)
     
     print(f"\n📀 {p1['name']} ({p1['tracks']} tracks)")
     print(f"   Valence:      {p1['valence']:.3f}")
     print(f"   Energy:       {p1['energy']:.3f}")
     print(f"   Danceability: {p1['danceability']:.3f}")
-    print(f"   [数据来源: {p1['source']}]")
+    print(f"   [Source: {p1['source']}]")
     
     print(f"\n📀 {p2['name']} ({p2['tracks']} tracks)")
     print(f"   Valence:      {p2['valence']:.3f}")
     print(f"   Energy:       {p2['energy']:.3f}")
     print(f"   Danceability: {p2['danceability']:.3f}")
-    print(f"   [数据来源: {p2['source']}]")
+    print(f"   [Source: {p2['source']}]")
     
     print("\n" + "-" * 60)
-    print("📊 差异分析:")
+    print("📊 Difference Analysis:")
     for interp in comparison['interpretation']:
         print(f"   • {interp}")
     
-    # 可视化（ASCII art）
+    # Visualization (ASCII art)
     print("\n" + "-" * 60)
-    print("📈 Valence-Energy 四象限:")
+    print("📈 Valence-Energy Quadrant:")
     print("""
                     High Energy
                          │
@@ -264,13 +264,13 @@ def print_comparison(comparison):
     
     def get_quadrant(v, e):
         if v >= 0.5 and e >= 0.5:
-            return "Happy/Energetic (右上)"
+            return "Happy/Energetic (Top Right)"
         elif v >= 0.5 and e < 0.5:
-            return "Peaceful/Content (右下)"
+            return "Peaceful/Content (Bottom Right)"
         elif v < 0.5 and e >= 0.5:
-            return "Angry/Intense (左上)"
+            return "Angry/Intense (Top Left)"
         else:
-            return "Sad/Melancholic (左下)"
+            return "Sad/Melancholic (Bottom Left)"
     
     q1 = get_quadrant(p1['valence'], p1['energy'])
     q2 = get_quadrant(p2['valence'], p2['energy'])
@@ -280,28 +280,28 @@ def print_comparison(comparison):
 
 
 # ============================================
-# 3. 按需爬取缺失的 tags
+# 3. Scrape missing tags on demand
 # ============================================
 
 def fill_missing_tags(df, api_key, output_path=None):
     """
-    为没有 tags 的歌曲爬取 Last.fm tags
+    Scrape Last.fm tags for songs without tags
     """
     from lastfm_scraper import LastFMScraper
     
-    # 找出缺失 tags 的行
+    # Find rows with missing tags
     missing_mask = df['tags'].isna() | (df['tags'] == '')
     missing_count = missing_mask.sum()
     
     if missing_count == 0:
-        print("✅ 所有歌曲都有 tags，无需爬取")
+        print("✅ All songs have tags, no scraping needed")
         return df
     
-    print(f"需要爬取 {missing_count} 首歌的 tags...")
+    print(f"Need to scrape tags for {missing_count} songs...")
     
     scraper = LastFMScraper(api_key)
     
-    # 爬取
+    # Scrape
     for idx in df[missing_mask].index:
         artist = df.loc[idx, 'artist']
         track = df.loc[idx, 'name']
@@ -310,14 +310,14 @@ def fill_missing_tags(df, api_key, output_path=None):
         df.loc[idx, 'tags'] = tags_str
         
         if (idx + 1) % 50 == 0:
-            print(f"  已处理 {idx + 1} 首...")
+            print(f"  Processed {idx + 1} songs...")
     
     scraper.close()
     
-    # 保存
+    # Save
     if output_path:
         df.to_csv(output_path, index=False)
-        print(f"✅ 已保存到 {output_path}")
+        print(f"✅ Saved to {output_path}")
     
     return df
 
@@ -331,16 +331,16 @@ if __name__ == "__main__":
     
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║           歌单情绪分析工具 - 使用指南                      ║
+║           Playlist Emotion Analysis Tool - Guide         ║
 ╠══════════════════════════════════════════════════════════╣
 ║                                                          ║
-║  1. 合并数据集:                                           ║
+║  1. Merge Datasets:                                      ║
 ║     python playlist_tools.py merge data1.csv data2.csv   ║
 ║                                                          ║
-║  2. 比较两个歌单:                                         ║
+║  2. Compare Two Playlists:                               ║
 ║     python playlist_tools.py compare p1.csv p2.csv       ║
 ║                                                          ║
-║  3. 为缺失 tags 的歌曲爬取:                               ║
+║  3. Scrape Tags for Missing Songs:                       ║
 ║     python playlist_tools.py fill data.csv               ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
@@ -368,4 +368,4 @@ if __name__ == "__main__":
         fill_missing_tags(df, LASTFM_API_KEY, sys.argv[2])
     
     else:
-        print("参数错误，请查看上面的使用指南")
+        print("Invalid arguments, please check the guide above")

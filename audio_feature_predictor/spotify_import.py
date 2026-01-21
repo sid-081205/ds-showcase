@@ -1,6 +1,6 @@
 """
-Spotify 歌单导入工具
-输入歌单链接 → 获取歌曲列表 → 爬 Last.fm tags → 预测情绪
+Spotify Playlist Import Tool
+Input playlist URL -> Get track list -> Scrape Last.fm tags -> Predict mood
 """
 
 import requests
@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 class SpotifyClient:
-    """Spotify API 客户端"""
+    """Spotify API Client"""
     
     AUTH_URL = "https://accounts.spotify.com/api/token"
     API_BASE = "https://api.spotify.com/v1"
@@ -23,7 +23,7 @@ class SpotifyClient:
         self._authenticate()
     
     def _authenticate(self):
-        """获取 access token (Client Credentials Flow)"""
+        """Get access token (Client Credentials Flow)"""
         auth_str = f"{self.client_id}:{self.client_secret}"
         auth_b64 = base64.b64encode(auth_str.encode()).decode()
         
@@ -37,10 +37,10 @@ class SpotifyClient:
             raise Exception(f"Spotify auth failed: {response.text}")
         
         self.token = response.json()["access_token"]
-        print("✅ Spotify 认证成功")
+        print("✅ Spotify Authentication Successful")
     
     def _get(self, endpoint, params=None):
-        """发送 GET 请求"""
+        """Send GET request"""
         response = requests.get(
             f"{self.API_BASE}/{endpoint}",
             headers={"Authorization": f"Bearer {self.token}"},
@@ -53,18 +53,18 @@ class SpotifyClient:
         return response.json()
     
     def get_playlist(self, playlist_id):
-        """获取歌单信息和曲目"""
-        # 获取歌单基本信息
+        """Get playlist info and tracks"""
+        # Get playlist basic info
         playlist = self._get(f"playlists/{playlist_id}")
         
         name = playlist["name"]
         description = playlist.get("description", "")
         total_tracks = playlist["tracks"]["total"]
         
-        print(f"\n📀 歌单: {name}")
-        print(f"   曲目数: {total_tracks}")
+        print(f"\n📀 Playlist: {name}")
+        print(f"   Total Tracks: {total_tracks}")
         
-        # 获取所有曲目（分页处理）
+        # Get all tracks (handle pagination)
         tracks = []
         offset = 0
         limit = 100
@@ -80,7 +80,7 @@ class SpotifyClient:
                 if track is None:
                     continue
                 
-                # 提取艺术家名（可能有多个）
+                # Extract artist names (handle multiple artists)
                 artists = ", ".join([a["name"] for a in track["artists"]])
                 
                 tracks.append({
@@ -93,7 +93,7 @@ class SpotifyClient:
                 })
             
             offset += limit
-            print(f"   已获取 {min(offset, total_tracks)}/{total_tracks} 首...")
+            print(f"   Fetched {min(offset, total_tracks)}/{total_tracks} tracks...")
         
         return {
             "name": name,
@@ -103,8 +103,8 @@ class SpotifyClient:
     
     @staticmethod
     def extract_playlist_id(url_or_id):
-        """从 URL 或 URI 中提取 playlist ID"""
-        # 支持的格式:
+        """Extract playlist ID from URL or URI"""
+        # Supported formats:
         # - https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M
         # - spotify:playlist:37i9dQZF1DXcBWIGoYBM5M
         # - 37i9dQZF1DXcBWIGoYBM5M
@@ -119,45 +119,45 @@ class SpotifyClient:
             if match:
                 return match.group(1)
         
-        return url_or_id  # 假设就是 ID
-
-
+        return url_or_id  # Assume it's the ID
+    
+    
 def import_playlist(playlist_url, client_id, client_secret, 
                     lastfm_api_key=None, output_path=None):
     """
-    导入 Spotify 歌单并获取 Last.fm tags
+    Import Spotify playlist and scrape Last.fm tags
     
     Args:
-        playlist_url: Spotify 歌单链接或 ID
+        playlist_url: Spotify playlist URL or ID
         client_id: Spotify Client ID
         client_secret: Spotify Client Secret
-        lastfm_api_key: Last.fm API Key (可选，用于获取 tags)
-        output_path: 输出 CSV 路径 (可选)
+        lastfm_api_key: Last.fm API Key (optional, for fetching tags)
+        output_path: Output CSV path (optional)
     
     Returns:
         DataFrame with tracks and tags
     """
-    # 连接 Spotify
+    # Connect to Spotify
     spotify = SpotifyClient(client_id, client_secret)
     
-    # 提取 playlist ID
+    # Extract playlist ID
     playlist_id = SpotifyClient.extract_playlist_id(playlist_url)
     print(f"Playlist ID: {playlist_id}")
     
-    # 获取歌单
+    # Get playlist
     playlist = spotify.get_playlist(playlist_id)
     df = playlist["tracks"]
     
-    # 获取 Last.fm tags（如果提供了 API key）
+    # Get Last.fm tags (if API key provided)
     if lastfm_api_key:
-        print("\n正在获取 Last.fm tags...")
+        print("\nFetching Last.fm tags...")
         from lastfm_scraper import LastFMScraper
         
         scraper = LastFMScraper(lastfm_api_key)
         
         tags_list = []
         for idx, row in df.iterrows():
-            # 只用第一个艺术家（多艺术家时）
+            # Use only the first artist
             artist = row["artist"].split(",")[0].strip()
             track = row["name"]
             
@@ -165,38 +165,38 @@ def import_playlist(playlist_url, client_id, client_secret,
             tags_list.append(tags_str)
             
             if (idx + 1) % 20 == 0:
-                print(f"   已处理 {idx + 1}/{len(df)} 首...")
+                print(f"   Processed {idx + 1}/{len(df)} tracks...")
         
         scraper.close()
         df["tags"] = tags_list
         
-        # 统计
+        # Stats
         has_tags = df["tags"].str.len() > 0
-        print(f"\n✅ Tags 获取完成")
-        print(f"   有 tags: {has_tags.sum()}/{len(df)}")
+        print(f"\n✅ Tags Fetch Complete")
+        print(f"   With tags: {has_tags.sum()}/{len(df)}")
     
-    # 保存
+    # Save
     if output_path is None:
-        # 用歌单名作为文件名
+        # Use playlist name as filename
         safe_name = re.sub(r'[<>:"/\\|?*]', '_', playlist["name"])
         output_path = f"playlist_{safe_name}.csv"
     
     df.to_csv(output_path, index=False)
-    print(f"\n💾 已保存到: {output_path}")
+    print(f"\n💾 Saved to: {output_path}")
     
     return df, playlist["name"]
 
 
 def analyze_spotify_playlist(playlist_url, model_path="model_bundle.pkl"):
     """
-    一键分析 Spotify 歌单情绪
+    One-click Spotify playlist mood analysis
     
-    需要先在 config.py 配置好各种密钥
+    Requires config.py with keys configured
     """
     from config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, LASTFM_API_KEY
     import pickle
     
-    # 导入歌单
+    # Import playlist
     df, playlist_name = import_playlist(
         playlist_url,
         SPOTIFY_CLIENT_ID,
@@ -204,14 +204,14 @@ def analyze_spotify_playlist(playlist_url, model_path="model_bundle.pkl"):
         LASTFM_API_KEY
     )
     
-    # 加载模型
+    # Load model
     with open(model_path, "rb") as f:
         bundle = pickle.load(f)
     model = bundle["model"]
     vectorizer = bundle["vectorizer"]
     
-    # 预测
-    # 标准化 tags 格式
+    # Predict
+    # Normalize tags format
     def normalize_tags(tags_str):
         if pd.isna(tags_str) or tags_str == "":
             return ""
@@ -228,38 +228,38 @@ def analyze_spotify_playlist(playlist_url, model_path="model_bundle.pkl"):
     for i, feat in enumerate(target_features):
         df[f"pred_{feat}"] = preds[:, i]
     
-    # 分析
+    # Analysis
     print("\n" + "=" * 60)
-    print(f"🎵 歌单分析: {playlist_name}")
+    print(f"🎵 Playlist Analysis: {playlist_name}")
     print("=" * 60)
     
-    print(f"\n📊 整体情绪:")
+    print(f"\n📊 Overall Mood:")
     for feat in target_features:
         col = f"pred_{feat}"
         print(f"   {feat.capitalize():15} {df[col].mean():.3f} (±{df[col].std():.3f})")
     
-    # 情绪象限
+    # Mood quadrants
     avg_valence = df["pred_valence"].mean()
     avg_energy = df["pred_energy"].mean()
     
     if avg_valence >= 0.5 and avg_energy >= 0.5:
-        mood = "😄 Happy/Energetic - 积极、有能量"
+        mood = "😄 Happy/Energetic"
     elif avg_valence >= 0.5 and avg_energy < 0.5:
-        mood = "😌 Peaceful/Content - 平静、舒适"
+        mood = "😌 Peaceful/Content"
     elif avg_valence < 0.5 and avg_energy >= 0.5:
-        mood = "😤 Angry/Intense - 激烈、有张力"
+        mood = "😤 Angry/Intense"
     else:
-        mood = "😢 Sad/Melancholic - 忧郁、沉思"
+        mood = "😢 Sad/Melancholic"
     
-    print(f"\n🎭 整体氛围: {mood}")
+    print(f"\n🎭 Overall Atmosphere: {mood}")
     
-    # 最 happy / 最 sad 的歌
-    print(f"\n🌟 最积极的 3 首:")
+    # Happiest / Saddest songs
+    print(f"\n🌟 Top 3 Most Positive:")
     top_happy = df.nlargest(3, "pred_valence")[["name", "artist", "pred_valence"]]
     for _, row in top_happy.iterrows():
         print(f"   • {row['name']} - {row['artist']} (valence: {row['pred_valence']:.3f})")
     
-    print(f"\n💧 最忧郁的 3 首:")
+    print(f"\n💧 Top 3 Most Melancholic:")
     top_sad = df.nsmallest(3, "pred_valence")[["name", "artist", "pred_valence"]]
     for _, row in top_sad.iterrows():
         print(f"   • {row['name']} - {row['artist']} (valence: {row['pred_valence']:.3f})")
@@ -277,18 +277,18 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("""
 ╔══════════════════════════════════════════════════════════╗
-║          Spotify 歌单导入工具                              ║
+║          Spotify Playlist Import Tool                    ║
 ╠══════════════════════════════════════════════════════════╣
 ║                                                          ║
-║  使用前先在 config.py 添加:                               ║
+║  Before use, add to config.py:                           ║
 ║                                                          ║
-║    SPOTIFY_CLIENT_ID = "你的 Client ID"                   ║
-║    SPOTIFY_CLIENT_SECRET = "你的 Client Secret"           ║
+║    SPOTIFY_CLIENT_ID = "Your Client ID"                   ║
+║    SPOTIFY_CLIENT_SECRET = "Your Client Secret"           ║
 ║                                                          ║
-║  使用方法:                                                ║
-║    python spotify_import.py <歌单链接>                    ║
+║  Usage:                                                   ║
+║    python spotify_import.py <Playlist URL>                ║
 ║                                                          ║
-║  示例:                                                    ║
+║  Example:                                                 ║
 ║    python spotify_import.py https://open.spotify.com/... ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
@@ -301,6 +301,6 @@ if __name__ == "__main__":
         analyze_spotify_playlist(playlist_url)
     except ImportError as e:
         if "SPOTIFY" in str(e):
-            print("❌ 请在 config.py 中配置 SPOTIFY_CLIENT_ID 和 SPOTIFY_CLIENT_SECRET")
+            print("❌ Please configure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in config.py")
         else:
             raise

@@ -24,7 +24,7 @@ def load_model(model_path='model_bundle.pkl'):
 
 
 def normalize_tags(tags_str):
-    """标准化 tags 格式，匹配训练数据"""
+    """Normalize tags format to match training data"""
     if pd.isna(tags_str) or tags_str == "":
         return ""
     tags = [t.strip().lower().replace(' ', '_').replace('-', '_') 
@@ -45,7 +45,7 @@ def predict_features(model, vectorizer, tags_string, target_features):
     Returns:
         Dict of predicted features
     """
-    # 标准化 tags
+    # Normalize tags
     normalized = normalize_tags(tags_string)
     X = vectorizer.transform([normalized])
     pred = model.predict(X)[0]
