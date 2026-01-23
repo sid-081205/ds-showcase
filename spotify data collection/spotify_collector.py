@@ -30,6 +30,11 @@ progress_state = {
     "user_info": None
 }
 
+# Determine absolute paths for consistency
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CACHE_PATH = os.path.join(BASE_DIR, ".cache")
+DB_PATH = os.path.join(BASE_DIR, "spotify_data.db")
+
 # Initialize SpotifyOAuth
 client_id = os.getenv('SPOTIPY_CLIENT_ID')
 client_secret = os.getenv('SPOTIPY_CLIENT_SECRET')
@@ -40,12 +45,12 @@ sp_oauth = SpotifyOAuth(
     client_secret=client_secret,
     redirect_uri=redirect_uri,
     scope=scope, 
-    cache_path=".cache"
+    cache_path=CACHE_PATH,
+    show_dialog=True
 )
 
 def setup_db():
-    db_path = os.path.join(os.path.dirname(__file__), 'spotify_data.db')
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # Drop deprecated tracks table if it exists
@@ -212,11 +217,13 @@ def collection_task(token_info):
     progress_state["progress"] = 0
     progress_state["status"] = "Initialising"
     
+    print("🚀 Starting background collection task...")
     try:
         sp = spotipy.Spotify(auth=token_info['access_token'])
         
         # Store user info
         user = sp.current_user()
+        print(f"👤 Logged in as: {user.get('display_name')} ({user.get('id')})")
         progress_state["user_info"] = {
             "display_name": user.get("display_name"),
             "id": user.get("id"),
@@ -227,7 +234,9 @@ def collection_task(token_info):
         
         # 1. Recent Tracks
         progress_state["status"] = "Fetching Recent Tracks"
+        print("🎵 Fetching recent tracks...")
         results_recent = sp.current_user_recently_played(limit=50)
+        saved_recent = 0
         if results_recent and 'items' in results_recent:
             for item in results_recent['items']:
                 track = item['track']
@@ -239,17 +248,20 @@ def collection_task(token_info):
                     'album': track['album']['name'],
                     'artist': track['artists'][0]['name']
                 }, 'recent_tracks')
+                saved_recent += 1
+        print(f"✅ Saved {saved_recent} recent tracks.")
         progress_state["progress"] = 15
                 
         # 2. Top Tracks - Paginated with Progress Update
         progress_state["status"] = "Fetching Top Tracks"
+        print("🔝 Fetching top tracks...")
         offset = 0
         limit = 50
         fetched_count = 0
         
         # Get total to calculate progress
         initial_results = sp.current_user_top_tracks(limit=1, offset=0)
-        total_top_tracks = initial_results.get('total', 50) # Fallback to 50
+        total_top_tracks = initial_results.get('total', 50) 
         
         while True:
             results_top = sp.current_user_top_tracks(limit=limit, offset=offset)
@@ -267,20 +279,20 @@ def collection_task(token_info):
                 }, 'top_tracks')
                 fetched_count += 1
                 
-                # Update progress within the 15% range (from 15 to 30)
                 granular_progress = 15 + (fetched_count / total_top_tracks * 15)
                 progress_state["progress"] = min(30, int(granular_progress))
             
             offset += limit
-            print(f"Fetched {fetched_count} top tracks so far...")
             if len(results_top['items']) < limit:
                 break
-        print(f"Total top tracks: {fetched_count}")
+        print(f"✅ Total top tracks saved: {fetched_count}")
         progress_state["progress"] = 30
-
+ 
         # 3. Followed Artists
         progress_state["status"] = "Fetching Followed Artists"
+        print("👥 Fetching followed artists...")
         results_followed = sp.current_user_followed_artists(limit=50)
+        saved_followed = 0
         if results_followed and 'artists' in results_followed:
             for artist in results_followed['artists']['items']:
                 save_artist(conn, {
@@ -292,11 +304,15 @@ def collection_task(token_info):
                     'followers': artist['followers']['total'],
                     'image_url': artist['images'][0]['url'] if artist['images'] else None
                 }, 'followed')
+                saved_followed += 1
+        print(f"✅ Saved {saved_followed} followed artists.")
         progress_state["progress"] = 45
-
+ 
         # 4. Top Artists (Non-paginated as per request)
         progress_state["status"] = "Fetching Top Artists"
+        print("🌟 Fetching top artists...")
         results_top_artists = sp.current_user_top_artists(limit=50)
+        saved_top_artists = 0
         if results_top_artists and 'items' in results_top_artists:
             for artist in results_top_artists['items']:
                 save_artist(conn, {
@@ -308,11 +324,15 @@ def collection_task(token_info):
                     'followers': artist['followers']['total'],
                     'image_url': artist['images'][0]['url'] if artist['images'] else None
                 }, 'top')
+                saved_top_artists += 1
+        print(f"✅ Saved {saved_top_artists} top artists.")
         progress_state["progress"] = 60
-
+ 
         # 5. Playlists
         progress_state["status"] = "Fetching Playlists"
+        print("📂 Fetching playlists...")
         results_playlists = sp.current_user_playlists(limit=50)
+        saved_playlists = 0
         if results_playlists and 'items' in results_playlists:
             for playlist in results_playlists['items']:
                 save_playlist(conn, {
@@ -323,12 +343,16 @@ def collection_task(token_info):
                     'total_tracks': playlist['tracks']['total'],
                     'image_url': playlist['images'][0]['url'] if playlist['images'] else None
                 })
+                saved_playlists += 1
+        print(f"✅ Saved {saved_playlists} playlists.")
         progress_state["progress"] = 80
-
+ 
         # 6. Saved Episodes
         progress_state["status"] = "Fetching Saved Episodes"
+        print("ℹ️ Fetching saved episodes...")
         try:
             results_episodes = sp.current_user_saved_episodes(limit=50)
+            saved_episodes = 0
             if results_episodes and 'items' in results_episodes:
                 for item in results_episodes['items']:
                     episode = item['episode']
@@ -342,14 +366,17 @@ def collection_task(token_info):
                         'release_date': episode['release_date'],
                         'image_url': episode['images'][0]['url'] if episode['images'] else None
                     })
+                    saved_episodes += 1
+            print(f"✅ Saved {saved_episodes} episodes.")
         except Exception as e:
-            print(f"Error fetching episodes: {e}")
+            print(f"❌ Error fetching episodes: {e}")
             
         progress_state["progress"] = 100
         progress_state["status"] = "Complete"
+        print("🎉 Collection task completed successfully!")
         conn.close()
     except Exception as e:
-        print(f"Collection task failed: {e}")
+        print(f"💥 Collection task failed: {e}")
         progress_state["status"] = f"Error: {e}"
     finally:
         progress_state["is_running"] = False
@@ -372,9 +399,8 @@ def callback():
 
 def clear_db():
     try:
-        db_path = os.path.join(os.path.dirname(__file__), 'spotify_data.db')
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
+        if os.path.exists(DB_PATH):
+            conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
             tables = ['recent_tracks', 'top_tracks', 'artists', 'playlists', 'episodes']
             for table in tables:
@@ -423,12 +449,13 @@ def status():
 def logout():
     global progress_state
     
-    # First, let's try to clear the global oauth object's cache
+    # First, let's try to clear the global oauth object's cache using absolute path
     try:
-        if os.path.exists(".cache"):
-            os.remove(".cache")
+        if os.path.exists(CACHE_PATH):
+            os.remove(CACHE_PATH)
+            print(f"Cache cleared at {CACHE_PATH}")
     except Exception as e:
-        print(f"Error removing .cache: {e}")
+        print(f"Error removing cache: {e}")
     
     # Clear database
     clear_db()
