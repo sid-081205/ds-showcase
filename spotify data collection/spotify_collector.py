@@ -370,12 +370,33 @@ def callback():
         return "Authentication successful! You can close this window."
     return "Authentication failed.", 400
 
+def clear_db():
+    try:
+        db_path = os.path.join(os.path.dirname(__file__), 'spotify_data.db')
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            tables = ['recent_tracks', 'top_tracks', 'artists', 'playlists', 'episodes']
+            for table in tables:
+                # Check if table exists before trying to delete
+                cursor.execute(f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{table}'")
+                if cursor.fetchone()[0] == 1:
+                    cursor.execute(f"DELETE FROM {table}")
+            cursor.execute("DROP TABLE IF EXISTS tracks")
+            conn.commit()
+            conn.close()
+            print("Database cleared successfully.")
+    except Exception as e:
+        print(f"Error clearing database: {e}")
+
 @app.route('/status')
 def status():
-    # If not running but we have a cache, try to get user info if missing
-    if not progress_state["is_running"] and not progress_state["user_info"]:
-        token_info = sp_oauth.get_cached_token()
-        if token_info:
+    global progress_state
+    token_info = sp_oauth.get_cached_token()
+    
+    # If we have a cache, try to get user info if missing
+    if token_info:
+        if not progress_state["is_running"] and not progress_state["user_info"]:
             try:
                 # Use a fresh sp object for status check to avoid shared state issues
                 temp_sp = spotipy.Spotify(auth=token_info['access_token'])
@@ -387,6 +408,15 @@ def status():
                 }
             except:
                 pass
+    else:
+        # Not connected - ensure database is empty as per requirement
+        if not progress_state["is_running"]:
+            clear_db()
+            progress_state["user_info"] = None
+            if progress_state["status"] == "Complete":
+                progress_state["status"] = "idle"
+                progress_state["progress"] = 0
+            
     return jsonify(progress_state)
 
 @app.route('/logout', methods=['POST'])
@@ -401,22 +431,7 @@ def logout():
         print(f"Error removing .cache: {e}")
     
     # Clear database
-    try:
-        db_path = os.path.join(os.path.dirname(__file__), 'spotify_data.db')
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM recent_tracks")
-            cursor.execute("DELETE FROM top_tracks")
-            cursor.execute("DELETE FROM artists")
-            cursor.execute("DELETE FROM playlists")
-            cursor.execute("DELETE FROM episodes")
-            cursor.execute("DROP TABLE IF EXISTS tracks") # Fully remove old table
-            conn.commit()
-            conn.close()
-            print("Database cleared successfully.")
-    except Exception as e:
-        print(f"Error clearing database: {e}")
+    clear_db()
     
     # Reset state
     progress_state = {
