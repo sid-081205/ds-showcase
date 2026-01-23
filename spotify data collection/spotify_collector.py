@@ -7,6 +7,10 @@ import os
 import threading
 from flask import Flask, redirect, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # Configuration
 # Ensure the following environment variables are set:
@@ -44,11 +48,14 @@ def setup_db():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # Tracks table
+    # Drop deprecated tracks table if it exists
+    cursor.execute('DROP TABLE IF EXISTS tracks')
+    
+    # Recent Tracks table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tracks (
+        CREATE TABLE IF NOT EXISTS recent_tracks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            spotify_id TEXT,
+            spotify_id TEXT UNIQUE,
             name TEXT,
             artist TEXT,
             album TEXT,
@@ -59,9 +66,26 @@ def setup_db():
             mood_sad REAL,
             mood_aggressive REAL,
             mood_relaxed REAL,
-            track_type TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(spotify_id, track_type)
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Top Tracks table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS top_tracks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spotify_id TEXT UNIQUE,
+            name TEXT,
+            artist TEXT,
+            album TEXT,
+            isrc TEXT,
+            link TEXT,
+            danceability REAL,
+            mood_happy REAL,
+            mood_sad REAL,
+            mood_aggressive REAL,
+            mood_relaxed REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -114,20 +138,19 @@ def setup_db():
     conn.commit()
     return conn
 
-def save_track(conn, track_data, track_type):
+def save_track(conn, track_data, table_name):
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR IGNORE INTO tracks 
-        (spotify_id, name, artist, album, isrc, link, track_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+    cursor.execute(f'''
+        INSERT OR IGNORE INTO {table_name} 
+        (spotify_id, name, artist, album, isrc, link)
+        VALUES (?, ?, ?, ?, ?, ?)
     ''', (
         track_data['spotify_id'],
         track_data['name'],
         track_data['artist'],
         track_data['album'],
         track_data.get('isrc'),
-        track_data['link'],
-        track_type
+        track_data['link']
     ))
     conn.commit()
 
@@ -215,13 +238,24 @@ def collection_task(token_info):
                     'isrc': track.get('external_ids', {}).get('isrc'),
                     'album': track['album']['name'],
                     'artist': track['artists'][0]['name']
-                }, 'recent')
+                }, 'recent_tracks')
         progress_state["progress"] = 15
                 
-        # 2. Top Tracks
+        # 2. Top Tracks - Paginated with Progress Update
         progress_state["status"] = "Fetching Top Tracks"
-        results_top = sp.current_user_top_tracks(limit=50, time_range="short_term")
-        if results_top and 'items' in results_top:
+        offset = 0
+        limit = 50
+        fetched_count = 0
+        
+        # Get total to calculate progress
+        initial_results = sp.current_user_top_tracks(limit=1, offset=0)
+        total_top_tracks = initial_results.get('total', 50) # Fallback to 50
+        
+        while True:
+            results_top = sp.current_user_top_tracks(limit=limit, offset=offset)
+            if not results_top or not results_top['items']:
+                break
+                
             for item in results_top['items']:
                 save_track(conn, {
                     'spotify_id': item['id'],
@@ -230,7 +264,18 @@ def collection_task(token_info):
                     'isrc': item.get('external_ids', {}).get('isrc'),
                     'album': item['album']['name'],
                     'artist': item['artists'][0]['name']
-                }, 'top')
+                }, 'top_tracks')
+                fetched_count += 1
+                
+                # Update progress within the 15% range (from 15 to 30)
+                granular_progress = 15 + (fetched_count / total_top_tracks * 15)
+                progress_state["progress"] = min(30, int(granular_progress))
+            
+            offset += limit
+            print(f"Fetched {fetched_count} top tracks so far...")
+            if len(results_top['items']) < limit:
+                break
+        print(f"Total top tracks: {fetched_count}")
         progress_state["progress"] = 30
 
         # 3. Followed Artists
@@ -249,9 +294,9 @@ def collection_task(token_info):
                 }, 'followed')
         progress_state["progress"] = 45
 
-        # 4. Top Artists
+        # 4. Top Artists (Non-paginated as per request)
         progress_state["status"] = "Fetching Top Artists"
-        results_top_artists = sp.current_user_top_artists(limit=50, time_range="medium_term")
+        results_top_artists = sp.current_user_top_artists(limit=50)
         if results_top_artists and 'items' in results_top_artists:
             for artist in results_top_artists['items']:
                 save_artist(conn, {
@@ -361,12 +406,15 @@ def logout():
         if os.path.exists(db_path):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM tracks")
+            cursor.execute("DELETE FROM recent_tracks")
+            cursor.execute("DELETE FROM top_tracks")
             cursor.execute("DELETE FROM artists")
             cursor.execute("DELETE FROM playlists")
             cursor.execute("DELETE FROM episodes")
+            cursor.execute("DROP TABLE IF EXISTS tracks") # Fully remove old table
             conn.commit()
             conn.close()
+            print("Database cleared successfully.")
     except Exception as e:
         print(f"Error clearing database: {e}")
     

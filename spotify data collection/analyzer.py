@@ -42,25 +42,21 @@ def get_acoustic_features(mbid):
         print(f"Error fetching features for MBID {mbid}: {e}")
     return None
 
-def main():
-    print("🚀 Starting Audio DNA Analysis...")
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
+def process_table(cursor, conn, table_name):
+    print(f"   Analyzing table: {table_name}")
     # Get tracks that haven't been analyzed yet
-    cursor.execute('SELECT id, spotify_id, name, artist, isrc FROM tracks WHERE danceability IS NULL')
+    cursor.execute(f'SELECT id, spotify_id, name, artist, isrc FROM {table_name} WHERE danceability IS NULL')
     tracks = cursor.fetchall()
 
     if not tracks:
-        print("✅ No new tracks to analyze.")
-        conn.close()
+        print(f"   ✅ No new tracks in {table_name} to analyze.")
         return
 
     total = len(tracks)
-    print(f"📊 Found {total} tracks to analyze.")
+    print(f"   📊 Found {total} tracks in {table_name} to analyze.")
 
     for i, (track_id, sp_id, name, artist, isrc) in enumerate(tracks):
-        print(f"[{i+1}/{total}] Analyzing: {name} - {artist}")
+        print(f"   [{i+1}/{total}] Analyzing: {name} - {artist}")
         
         mbid = get_mbid_by_isrc(isrc)
         time.sleep(1.0) # Respect rate limits
@@ -69,8 +65,8 @@ def main():
             features = get_acoustic_features(mbid)
             time.sleep(1.0) # Respect rate limits
             if features:
-                cursor.execute('''
-                    UPDATE tracks 
+                cursor.execute(f'''
+                    UPDATE {table_name} 
                     SET danceability = ?, mood_happy = ?, mood_sad = ?, mood_aggressive = ?, mood_relaxed = ?
                     WHERE id = ?
                 ''', (
@@ -82,11 +78,19 @@ def main():
                     track_id
                 ))
                 conn.commit()
-                print(f"   ✅ Saved features for {name}")
+                print(f"      ✅ Saved features for {name}")
             else:
-                print(f"   ⚠️ No acoustic features found for {name}")
+                print(f"      ⚠️ No acoustic features found for {name}")
         else:
-            print(f"   ⚠️ No MBID found for ISRC {isrc} ({name})")
+            print(f"      ⚠️ No MBID found for ISRC {isrc} ({name})")
+
+def main():
+    print("🚀 Starting Audio DNA Analysis...")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    process_table(cursor, conn, 'recent_tracks')
+    process_table(cursor, conn, 'top_tracks')
 
     conn.close()
     print("🏁 Analysis complete!")
