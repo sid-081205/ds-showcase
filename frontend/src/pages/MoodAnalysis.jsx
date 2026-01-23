@@ -59,6 +59,32 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
 export default function MoodAnalysis() {
     const { currentMood, trends, topArtists } = moodData;
+    const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+
+    React.useEffect(() => {
+        const checkUser = async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:8888/status');
+                const data = await response.json();
+                setIsLoggedIn(!!data.user_info);
+            } catch (error) {
+                console.error("Failed to fetch status:", error);
+            }
+        };
+        checkUser();
+    }, []);
+
+    const handleLinkSpotify = async () => {
+        try {
+            const response = await fetch('http://127.0.0.1:8888/login');
+            const data = await response.json();
+            if (data.url) {
+                window.open(data.url, '_blank', 'width=600,height=800');
+            }
+        } catch (error) {
+            console.error("Failed to link Spotify:", error);
+        }
+    };
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -72,10 +98,15 @@ export default function MoodAnalysis() {
                         Deep dive into your listening soul.
                     </p>
                 </div>
-                <button className="neo-brutal bg-black text-white px-6 py-3 font-black uppercase tracking-tighter hover:bg-white hover:text-black transition-colors cursor-pointer text-lg flex items-center gap-2">
-                    <Music className="w-5 h-5" />
-                    Link Spotify
-                </button>
+                {!isLoggedIn && (
+                    <button
+                        onClick={handleLinkSpotify}
+                        className="neo-brutal bg-black text-white px-6 py-3 font-black uppercase tracking-tighter hover:bg-white hover:text-black transition-colors cursor-pointer text-lg flex items-center gap-2"
+                    >
+                        <Music className="w-5 h-5" />
+                        Link Spotify
+                    </button>
+                )}
             </div>
 
             {/* Stats Cards Row */}

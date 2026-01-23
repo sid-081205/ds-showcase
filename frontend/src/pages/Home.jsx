@@ -6,6 +6,32 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import TrendsChart from '../components/TrendsChart';
 
 const Home = () => {
+    const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+
+    React.useEffect(() => {
+        const checkUser = async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:8888/status');
+                const data = await response.json();
+                setIsLoggedIn(!!data.user_info);
+            } catch (error) {
+                console.error("Failed to fetch status:", error);
+            }
+        };
+        checkUser();
+    }, []);
+
+    const handleLinkSpotify = async () => {
+        try {
+            const res = await fetch('http://127.0.0.1:8888/login');
+            const data = await res.json();
+            if (data.url) window.location.href = data.url;
+        } catch (e) {
+            console.error("Login failed", e);
+            alert("Make sure the backend is running!");
+        }
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Hero Section */}
@@ -18,22 +44,23 @@ const Home = () => {
                         "Your music taste is <span className="underline decoration-4 decoration-white">chaotic good</span> right now."
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button
-                            onClick={async () => {
-                                try {
-                                    const res = await fetch('http://127.0.0.1:8888/login');
-                                    const data = await res.json();
-                                    if (data.url) window.location.href = data.url;
-                                } catch (e) {
-                                    console.error("Login failed", e);
-                                    alert("Make sure the backend is running!");
-                                }
-                            }}
-                            className="inline-flex items-center justify-center gap-2 bg-white text-black border-2 border-black shadow-neo hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-neo-hover transition-all px-8 py-4 font-bold text-lg uppercase cursor-pointer"
-                        >
-                            <TrendingUp className="w-6 h-6" />
-                            Link Spotify
-                        </button>
+                        {!isLoggedIn ? (
+                            <button
+                                onClick={handleLinkSpotify}
+                                className="inline-flex items-center justify-center gap-2 bg-white text-black border-2 border-black shadow-neo hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-neo-hover transition-all px-8 py-4 font-bold text-lg uppercase cursor-pointer"
+                            >
+                                <TrendingUp className="w-6 h-6" />
+                                Link Spotify
+                            </button>
+                        ) : (
+                            <Link
+                                to="/mood-analysis"
+                                className="inline-flex items-center justify-center gap-2 bg-white text-black border-2 border-black shadow-neo hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-neo-hover transition-all px-8 py-4 font-bold text-lg uppercase cursor-pointer"
+                            >
+                                <Play className="w-6 h-6" />
+                                View Analysis
+                            </Link>
+                        )}
                         <Link to="/compare" className="inline-flex items-center justify-center gap-2 bg-accent text-black border-2 border-black shadow-neo hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-neo-hover transition-all px-8 py-4 font-bold text-lg uppercase">
                             <Users className="w-6 h-6" />
                             Compare with Friends
