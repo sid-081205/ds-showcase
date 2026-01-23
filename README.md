@@ -1,51 +1,49 @@
-# 🎵 Spotify Mood & DNA Review
+# audire (name tbd)
 
-Welcome to **Spotify Mood & DNA Review**, a deep dive into your musical soul. This isn't just another "wrapped" clone—it's a high-precision analysis tool designed to help you understand the *why* behind your listening habits, compare your vibe with your inner circle, and even peek into your musical future using machine learning.
+![home page placeholder](./assets/homepage.png)
 
-![Home Page Placeholder](./assets/homepage.png)
+## what makes this special?
 
-## 🚀 What makes this special?
+most music apps just tell you what you listened to. we tell you what it felt like. by linking your spotify account, we pull your data through a sophisticated pipeline that combines official apis with deep metadata scraping and insights from curated kaggle datasets.
 
-Most music apps just tell you what you listened to. We tell you what it *felt* like. By linking your Spotify account, we pull your data through a sophisticated pipeline that combines official APIs with deep metadata scraping.
+### audio dna extraction
+we don't just look at genres. our backend uses musicbrainz and acousticbrainz integration to perform "dna extraction" on your tracks. we analyze:
+- danceability: how movement-friendly is your library?
+- mood profile: are you in a "chaotic good" phase or a "deep melancholy" streak?
+- energy levels: mapping your hype cycles throughout the week.
 
-### 🧬 Audio DNA Extraction
-We don't just look at genres. Our backend uses **MusicBrainz** and **AcousticBrainz** integration to perform "DNA Extraction" on your tracks. We analyze:
-- **Danceability**: How movement-friendly is your library?
-- **Mood Profile**: Are you in a "Chaotic Good" phase or a "Deep Melancholy" streak?
-- **Energy Levels**: Mapping your hype cycles throughout the week.
+### deep song analysis
+through custom web scraping and api enrichment, we retrieve high-level acoustic features that spotify's basic interface hides. we've integrated extensive kaggle music datasets to provide deeper context and benchmarks for your listening patterns. you'll see beautiful, neo-brutalist charts (radar, area, and bar charts) that visualize your "audio dna" in real-time.
 
-### 📊 Deep Song Analysis
-Through custom web scraping and API enrichment, we retrieve high-level acoustic features that Spotify's basic interface hides. You'll see beautiful, neo-brutalist charts (Radar, Area, and Bar charts) that visualize your "Audio DNA" in real-time.
+![mood analysis placeholder](./assets/analysis.png)
 
-![Mood Analysis Placeholder](./assets/analysis.png)
+### active friend comparison
+music is social. our compare feature allows you to link up with friends to see how your "musical dna" matches. 
+- are you the "energy peak" of the group? 
+- who has the most eccentric taste? 
+- get a "match score" based on overlapping genres and mood profiles.
 
-### 👯‍♂️ Active Friend Comparison
-Music is social. Our **Compare** feature allows you to link up with friends to see how your "Musical DNA" matches. 
-- Are you the "Energy Peak" of the group? 
-- Who has the most eccentric taste? 
-- Get a "Match Score" based on overlapping genres and mood profiles.
-
-### 🔮 Predictive AI (The Future Vibe)
-We use a **Supervised Machine Learning algorithm** (trained on thousands of acoustic profiles) to predict what you'll be obsessed with next. By analyzing your historical energy shifts and mood transitions, the system identifies evolving patterns in your taste before you even realize they're changing.
+### predictive ai (the future vibe)
+we use a supervised machine learning algorithm—trained using web-scraped data and massive kaggle datasets—to predict what you'll be obsessed with next. by analyzing your historical energy shifts and mood transitions, the system identifies evolving patterns in your taste before you even realize they're changing.
 
 ---
 
-## 🛠️ Under the Hood
+## under the hood
 
-### The Tech Stack
-- **Frontend**: React (Vite) + Tailwind CSS + Lucide Icons (Neo-brutalist Design System).
-- **Backend**: Python Flask API handling OAuth2 authentication.
-- **Database**: SQLite for local, lightning-fast caching of your listening history.
-- **Analysis Engine**: A background Python worker that processes ISRC data to fetch MBIDs and acoustic features.
+### the tech stack
+- frontend: react (vite) + tailwind css + lucide icons (neo-brutalist design system)
+- backend: python flask api handling oauth2 authentication
+- database: sqlite for local, lightning-fast caching of your listening history
+- analysis engine: a background python worker that processes isrc data to fetch mbids and acoustic features
 
-### Getting Started
+### getting started
 
-1. **Clone the repo** and install dependencies for both the frontend (npm) and backend (pip).
-2. **Setup your environment**: Add your `SPOTIPY_CLIENT_ID`, `SPOTIPY_CLIENT_SECRET`, and `SPOTIPY_REDIRECT_URI` to a `.env` file.
-3. **Run the Backend**: `python3 "spotify data collection/spotify_collector.py"`
-4. **Start the Frontend**: `npm run dev`
-5. **Analyze**: Head to `localhost:5173`, link your account, and let the extraction begin!
+1. clone the repo and install dependencies for both the frontend (npm) and backend (pip).
+2. setup your environment: add your spotipy_client_id, spotipy_client_secret, and spotipy_redirect_uri to a .env file.
+3. run the backend: python3 "spotify data collection/spotify_collector.py"
+4. start the frontend: npm run dev
+5. analyze: head to localhost:5173, link your account, and let the extraction begin!
 
 ---
 
-*Built with ❤️ for serious music nerds.*
+*built for serious music nerds.*
