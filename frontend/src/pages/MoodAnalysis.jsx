@@ -1,23 +1,11 @@
-import React from "react"
-import {
-    moodData,
-    genreData,
-    audioFeatures,
-    listeningHours,
-    topTracks,
-    monthlyStats,
-    moodScoreHistory,
-    listeningSummary
-} from "@/lib/data"
+import React, { useState, useEffect } from "react"
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
     PieChart, Pie,
     RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-    AreaChart, Area,
-    LineChart, Line
 } from 'recharts'
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Music, Clock, Disc, TrendingUp, Headphones, Zap, Heart, BarChart3 } from "lucide-react"
+import { Music, Disc, Heart, BarChart3, Loader2, AlertCircle, Zap, TrendingUp } from "lucide-react"
 
 // Neo-brutalist tooltip component
 const NeoTooltip = ({ active, payload, label }) => {
@@ -27,7 +15,7 @@ const NeoTooltip = ({ active, payload, label }) => {
                 <p className="text-sm underline decoration-2 mb-1">{label}</p>
                 {payload.map((entry, index) => (
                     <p key={index} style={{ color: entry.color || entry.fill }} className="text-sm">
-                        {entry.name}: {entry.value}
+                        {entry.name}: {typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
                     </p>
                 ))}
             </div>
@@ -37,9 +25,9 @@ const NeoTooltip = ({ active, payload, label }) => {
 };
 
 // Custom external label for donut chart
-const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name, value }) => {
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) => {
     const RADIAN = Math.PI / 180;
-    const radius = outerRadius + 30; // Position outside the donut
+    const radius = outerRadius + 30;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
@@ -57,11 +45,36 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
     );
 };
 
-export default function MoodAnalysis() {
-    const { currentMood, trends, topArtists } = moodData;
-    const [isLoggedIn, setIsLoggedIn] = React.useState(false);
+// Color palette for charts
+const COLORS = {
+    primary: "hsl(84, 100%, 73%)",
+    secondary: "hsl(359, 100%, 80%)",
+    accent: "hsl(210, 40%, 80%)",
+    tertiary: "hsl(48, 100%, 70%)",
+    quaternary: "hsl(280, 100%, 80%)"
+};
 
-    React.useEffect(() => {
+export default function MoodAnalysis() {
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [moodData, setMoodData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [analyzerStatus, setAnalyzerStatus] = useState(null);
+
+    // Fetch mood data from backend
+    const fetchMoodData = async () => {
+        try {
+            const response = await fetch('http://127.0.0.1:8888/mood-data');
+            const data = await response.json();
+            setMoodData(data);
+            setLoading(false);
+        } catch (error) {
+            console.error("Failed to fetch mood data:", error);
+            setLoading(false);
+        }
+    };
+
+    // Check login status
+    useEffect(() => {
         const checkUser = async () => {
             try {
                 const response = await fetch('http://127.0.0.1:8888/status');
@@ -72,6 +85,24 @@ export default function MoodAnalysis() {
             }
         };
         checkUser();
+    }, []);
+
+    // Fetch mood data and analyzer status
+    useEffect(() => {
+        fetchMoodData();
+
+        // Poll for updates every 3 seconds
+        const interval = setInterval(() => {
+            fetchMoodData();
+
+            // Also check analyzer status
+            fetch('http://127.0.0.1:8888/analyzer-status')
+                .then(res => res.json())
+                .then(data => setAnalyzerStatus(data))
+                .catch(err => console.error("Failed to fetch analyzer status:", err));
+        }, 3000);
+
+        return () => clearInterval(interval);
     }, []);
 
     const handleLinkSpotify = async () => {
@@ -86,8 +117,49 @@ export default function MoodAnalysis() {
         }
     };
 
+    // Prepare chart data from mood data
+    const genreData = moodData?.top_genres?.map((genre, index) => ({
+        name: genre.name,
+        value: genre.count,
+        color: [COLORS.primary, COLORS.secondary, COLORS.accent, COLORS.tertiary, COLORS.quaternary][index % 5]
+    })) || [];
+
+    const audioFeatures = moodData?.has_data ? [
+        { feature: "Danceability", value: parseFloat((moodData.average_moods.avg_danceability * 100).toFixed(0)) },
+        { feature: "Happy", value: parseFloat((moodData.average_moods.avg_happy * 100).toFixed(0)) },
+        { feature: "Sad", value: parseFloat((moodData.average_moods.avg_sad * 100).toFixed(0)) },
+        { feature: "Aggressive", value: parseFloat((moodData.average_moods.avg_aggressive * 100).toFixed(0)) },
+        { feature: "Relaxed", value: parseFloat((moodData.average_moods.avg_relaxed * 100).toFixed(0)) },
+    ] : [];
+
+    // Determine current vibe based on highest mood score
+    const getCurrentVibe = () => {
+        if (!moodData?.has_data) return "UNKNOWN";
+        const moods = moodData.average_moods;
+        const moodScores = {
+            "HAPPY": moods.avg_happy,
+            "SAD": moods.avg_sad,
+            "AGGRESSIVE": moods.avg_aggressive,
+            "RELAXED": moods.avg_relaxed
+        };
+        return Object.keys(moodScores).reduce((a, b) => moodScores[a] > moodScores[b] ? a : b);
+    };
+
+    // Show loading state
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <Loader2 className="w-12 h-12 animate-spin" />
+            </div>
+        );
+    }
+
+    // Show overlay when no data
+    const showOverlay = !moodData?.has_data;
+    const isAnalyzing = analyzerStatus?.is_running;
+
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="relative space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Header */}
             <div className="flex justify-between items-start">
                 <div>
@@ -109,359 +181,389 @@ export default function MoodAnalysis() {
                 )}
             </div>
 
-            {/* Stats Cards Row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="bg-primary neo-brutal">
-                    <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                        <Clock className="w-8 h-8 mb-2" />
-                        <p className="text-3xl font-black">{Math.round(listeningSummary.totalMinutes / 60)}h</p>
-                        <p className="text-sm font-bold uppercase">Total Listened</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-secondary neo-brutal">
-                    <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                        <Music className="w-8 h-8 mb-2" />
-                        <p className="text-3xl font-black">{listeningSummary.totalTracks.toLocaleString()}</p>
-                        <p className="text-sm font-bold uppercase">Tracks Played</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-accent neo-brutal">
-                    <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                        <Disc className="w-8 h-8 mb-2" />
-                        <p className="text-3xl font-black">{listeningSummary.uniqueArtists}</p>
-                        <p className="text-sm font-bold uppercase">Artists</p>
-                    </CardContent>
-                </Card>
-                <Card className="bg-white neo-brutal">
-                    <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                        <Zap className="w-8 h-8 mb-2" />
-                        <p className="text-3xl font-black">{listeningSummary.longestStreak}</p>
-                        <p className="text-sm font-bold uppercase">Day Streak</p>
-                    </CardContent>
-                </Card>
-            </div>
+            {/* Overlay when no data */}
+            {showOverlay && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <Card className="bg-white neo-brutal max-w-md mx-4">
+                        <CardContent className="p-8 text-center space-y-4">
+                            {isAnalyzing ? (
+                                <>
+                                    <Loader2 className="w-16 h-16 mx-auto animate-spin text-primary" />
+                                    <h2 className="text-3xl font-black uppercase">
+                                        Analyzing Your Music
+                                    </h2>
+                                    <p className="text-lg font-medium">
+                                        {analyzerStatus.status}
+                                    </p>
+                                    {analyzerStatus.total > 0 && (
+                                        <div className="space-y-2">
+                                            <div className="w-full bg-gray-200 border-3 border-black h-8">
+                                                <div
+                                                    className="bg-primary h-full transition-all duration-300 flex items-center justify-center font-black"
+                                                    style={{ width: `${analyzerStatus.progress}%` }}
+                                                >
+                                                    {analyzerStatus.progress}%
+                                                </div>
+                                            </div>
+                                            <p className="text-sm font-bold">
+                                                {analyzerStatus.analyzed} / {analyzerStatus.total} tracks
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <AlertCircle className="w-16 h-16 mx-auto text-secondary" />
+                                    <h2 className="text-3xl font-black uppercase">
+                                        No Data Available
+                                    </h2>
+                                    <p className="text-lg font-medium">
+                                        Go to the Home page and click "Analyze My Data" to get started!
+                                    </p>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
-            {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Current Vibe Card */}
-                <Card className="bg-primary neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <Heart className="w-6 h-6" />
-                            YOUR CURRENT VIBE
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                        <div className="text-6xl font-black uppercase mb-4 tracking-tighter">
-                            {currentMood}
-                        </div>
-                        <div className="space-y-3">
-                            <p className="font-bold text-lg uppercase tracking-wide">Top Artists This Week:</p>
-                            <div className="flex flex-wrap gap-2">
-                                {topArtists.map((artist, i) => (
-                                    <span
-                                        key={i}
-                                        className="bg-black text-white px-3 py-1 font-bold text-sm transform"
-                                        style={{ transform: `rotate(${(i % 2 === 0 ? 1 : -1) * 2}deg)` }}
-                                    >
-                                        {artist}
-                                    </span>
-                                ))}
+            {/* Main Content - Blurred when no data */}
+            <div className={showOverlay ? "blur-sm pointer-events-none" : ""}>
+                {/* Stats Cards Row */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-12">
+                    <Card className="bg-primary neo-brutal">
+                        <CardContent className="p-4 flex flex-col items-center justify-center text-center">
+                            <Music className="w-8 h-8 mb-2" />
+                            <p className="text-3xl font-black">{moodData?.stats?.total_tracks || 0}</p>
+                            <p className="text-sm font-bold uppercase">Top Tracks</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-secondary neo-brutal">
+                        <CardContent className="p-4 flex flex-col items-center justify-center text-center">
+                            <Disc className="w-8 h-8 mb-2" />
+                            <p className="text-3xl font-black">{moodData?.stats?.unique_artists || 0}</p>
+                            <p className="text-sm font-bold uppercase">Artists</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-accent neo-brutal">
+                        <CardContent className="p-4 flex flex-col items-center justify-center text-center">
+                            <BarChart3 className="w-8 h-8 mb-2" />
+                            <p className="text-3xl font-black">{moodData?.stats?.analyzed_tracks || 0}</p>
+                            <p className="text-sm font-bold uppercase">Analyzed</p>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Main Content Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    {/* Current Vibe Card */}
+                    <Card className="bg-primary neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <Heart className="w-6 h-6" />
+                                YOUR CURRENT VIBE
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6">
+                            <div className="text-6xl font-black uppercase mb-4 tracking-tighter">
+                                {getCurrentVibe()}
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                            <div className="space-y-3">
+                                <p className="font-bold text-lg uppercase tracking-wide">Top Artists:</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {moodData?.top_artists?.slice(0, 5).map((artist, i) => (
+                                        <span
+                                            key={i}
+                                            className="bg-black text-white px-3 py-1 font-bold text-sm transform"
+                                            style={{ transform: `rotate(${(i % 2 === 0 ? 1 : -1) * 2}deg)` }}
+                                        >
+                                            {artist.name}
+                                        </span>
+                                    )) || <span className="text-sm">No artists yet</span>}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
 
-                {/* Genre Distribution Donut Chart */}
-                <Card className="bg-white neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <Disc className="w-6 h-6" />
-                            GENRE BREAKDOWN
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                        <div className="h-[280px]">
+                    {/* Audio DNA Radar Chart */}
+                    <Card className="bg-secondary neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <BarChart3 className="w-6 h-6" />
+                                AUDIO DNA
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="h-[350px] p-6">
                             <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={genreData}
-                                        cx="50%"
-                                        cy="50%"
-                                        labelLine={{
-                                            stroke: 'black',
-                                            strokeWidth: 2,
-                                        }}
-                                        label={renderCustomizedLabel}
-                                        outerRadius={100}
-                                        innerRadius={50}
+                                <RadarChart data={audioFeatures}>
+                                    <PolarGrid
+                                        stroke="black"
+                                        strokeWidth={2}
+                                        gridType="polygon"
+                                    />
+                                    <PolarAngleAxis
+                                        dataKey="feature"
+                                        tick={{ fill: 'black', fontWeight: 'bold', fontSize: 12 }}
+                                    />
+                                    <PolarRadiusAxis
+                                        angle={30}
+                                        domain={[0, 100]}
+                                        tick={false}
+                                        axisLine={false}
+                                    />
+                                    <Radar
+                                        name="Audio Features"
                                         dataKey="value"
                                         stroke="black"
-                                        strokeWidth={3}
-                                    >
-                                        {genreData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Pie>
+                                        strokeWidth={4}
+                                        fill="hsl(84, 100%, 73%)"
+                                        fillOpacity={0.8}
+                                    />
                                     <Tooltip content={<NeoTooltip />} />
-                                </PieChart>
+                                </RadarChart>
                             </ResponsiveContainer>
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+                </div>
 
-                {/* Audio Features Radar Chart */}
-                <Card className="bg-secondary neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <BarChart3 className="w-6 h-6" />
-                            AUDIO DNA
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[350px] p-6">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <RadarChart data={audioFeatures}>
-                                <PolarGrid
-                                    stroke="black"
-                                    strokeWidth={2}
-                                    gridType="polygon"
-                                />
-                                <PolarAngleAxis
-                                    dataKey="feature"
-                                    tick={{ fill: 'black', fontWeight: 'bold', fontSize: 12 }}
-                                />
-                                <PolarRadiusAxis
-                                    angle={30}
-                                    domain={[0, 100]}
-                                    tick={false}
-                                    axisLine={false}
-                                />
-                                <Radar
-                                    name="Audio Features"
-                                    dataKey="value"
-                                    stroke="black"
-                                    strokeWidth={4}
-                                    fill="hsl(84, 100%, 73%)"
-                                    fillOpacity={0.8}
-                                />
-                                <Tooltip content={<NeoTooltip />} />
-                            </RadarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                {/* Listening Hours Bar Chart */}
-                <Card className="bg-accent neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <Headphones className="w-6 h-6" />
-                            PEAK LISTENING HOURS
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[350px] p-4">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={listeningHours}>
-                                <XAxis
-                                    dataKey="time"
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold', fontSize: 12 }}
-                                />
-                                <YAxis
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                    label={{ value: 'Hours', angle: -90, position: 'insideLeft', fontWeight: 'bold' }}
-                                />
-                                <Tooltip content={<NeoTooltip />} />
-                                <Bar dataKey="hours" name="Hours" radius={[4, 4, 0, 0]}>
-                                    {listeningHours.map((entry, index) => (
-                                        <Cell
-                                            key={`cell-${index}`}
-                                            fill={entry.hours > 2 ? "hsl(359, 100%, 80%)" : "hsl(84, 100%, 73%)"}
+                {/* Genre Distribution and Mood Breakdown */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mt-12">
+                    {/* Genre Distribution Donut Chart */}
+                    <Card className="bg-accent neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <Disc className="w-6 h-6" />
+                                GENRE BREAKDOWN
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6">
+                            <div className="h-[280px]">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={genreData}
+                                            cx="50%"
+                                            cy="50%"
+                                            labelLine={{
+                                                stroke: 'black',
+                                                strokeWidth: 2,
+                                            }}
+                                            label={renderCustomizedLabel}
+                                            outerRadius={100}
+                                            innerRadius={50}
+                                            dataKey="value"
                                             stroke="black"
                                             strokeWidth={3}
-                                        />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Full Width Charts */}
-            <div className="space-y-8">
-                {/* Mood Score History Area Chart */}
-                <Card className="bg-white neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <TrendingUp className="w-6 h-6" />
-                            MOOD & ENERGY TREND
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[300px] p-6">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={moodScoreHistory}>
-                                <defs>
-                                    <pattern id="stripes" patternUnits="userSpaceOnUse" width="4" height="4">
-                                        <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" stroke="black" strokeWidth="0.5" />
-                                    </pattern>
-                                </defs>
-                                <XAxis
-                                    dataKey="week"
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                />
-                                <YAxis
-                                    domain={[0, 100]}
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                />
-                                <Tooltip content={<NeoTooltip />} />
-                                <Area
-                                    type="monotone"
-                                    dataKey="mood"
-                                    name="Mood Score"
-                                    stroke="black"
-                                    strokeWidth={3}
-                                    fill="hsl(84, 100%, 73%)"
-                                />
-                                <Area
-                                    type="monotone"
-                                    dataKey="energy"
-                                    name="Energy"
-                                    stroke="black"
-                                    strokeWidth={3}
-                                    fill="hsl(359, 100%, 80%)"
-                                    fillOpacity={0.6}
-                                />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                {/* Monthly Listening Stats */}
-                <Card className="bg-primary neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <BarChart3 className="w-6 h-6" />
-                            MONTHLY LISTENING TIME
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[300px] p-6">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={monthlyStats}>
-                                <XAxis
-                                    dataKey="month"
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold', fontSize: 11 }}
-                                />
-                                <YAxis
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                    tickFormatter={(value) => `${Math.round(value / 60)}h`}
-                                />
-                                <Tooltip
-                                    content={<NeoTooltip />}
-                                    formatter={(value) => [`${Math.round(value / 60)} hours`, 'Listening Time']}
-                                />
-                                <Bar dataKey="minutes" name="Minutes" radius={[4, 4, 0, 0]}>
-                                    {monthlyStats.map((entry, index) => (
-                                        <Cell
-                                            key={`cell-${index}`}
-                                            fill={index === 6 ? "hsl(359, 100%, 80%)" : "white"}
-                                            stroke="black"
-                                            strokeWidth={3}
-                                        />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                {/* Top Tracks Table */}
-                <Card className="bg-white neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <Music className="w-6 h-6" />
-                            TOP TRACKS
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b-3 border-black bg-black text-white">
-                                        <th className="p-4 text-left font-black uppercase">#</th>
-                                        <th className="p-4 text-left font-black uppercase">Track</th>
-                                        <th className="p-4 text-left font-black uppercase">Artist</th>
-                                        <th className="p-4 text-left font-black uppercase">Plays</th>
-                                        <th className="p-4 text-left font-black uppercase">Duration</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {topTracks.map((track, index) => (
-                                        <tr
-                                            key={track.rank}
-                                            className={`border-b-2 border-black transition-all hover:bg-primary/30 cursor-pointer ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
                                         >
-                                            <td className="p-4">
-                                                <span className="w-8 h-8 flex items-center justify-center bg-black text-white font-black rounded-full text-sm">
-                                                    {track.rank}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 font-bold">{track.name}</td>
-                                            <td className="p-4 font-medium">{track.artist}</td>
-                                            <td className="p-4">
-                                                <span className="bg-accent border-2 border-black px-2 py-1 font-bold">
-                                                    {track.plays}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 font-mono font-bold">{track.duration}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
+                                            {genreData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip content={<NeoTooltip />} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </CardContent>
+                    </Card>
 
-                {/* Weekly Mood Trends (Original Chart) */}
-                <Card className="bg-accent neo-brutal">
-                    <CardHeader className="border-b-3 border-black">
-                        <CardTitle className="flex items-center gap-2 text-2xl">
-                            <TrendingUp className="w-6 h-6" />
-                            WEEKLY MOOD BREAKDOWN
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[350px] p-6">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={trends}>
-                                <XAxis
-                                    dataKey="name"
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                />
-                                <YAxis
-                                    axisLine={{ stroke: 'black', strokeWidth: 3 }}
-                                    tickLine={{ stroke: 'black', strokeWidth: 2 }}
-                                    tick={{ fill: 'black', fontWeight: 'bold' }}
-                                />
-                                <Tooltip content={<NeoTooltip />} />
-                                <Bar dataKey="energy" name="Energy" fill="hsl(84, 100%, 73%)" stroke="black" strokeWidth={2} radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="happiness" name="Happiness" fill="hsl(359, 100%, 80%)" stroke="black" strokeWidth={2} radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="sadness" name="Sadness" fill="hsl(210, 40%, 80%)" stroke="black" strokeWidth={2} radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </CardContent>
-                </Card>
+                    {/* Mood Breakdown Bar Chart */}
+                    <Card className="bg-white neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <TrendingUp className="w-6 h-6" />
+                                MOOD BREAKDOWN
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="h-[350px] p-6">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={audioFeatures}>
+                                    <XAxis
+                                        dataKey="feature"
+                                        axisLine={{ stroke: 'black', strokeWidth: 3 }}
+                                        tickLine={{ stroke: 'black', strokeWidth: 2 }}
+                                        tick={{ fill: 'black', fontWeight: 'bold' }}
+                                    />
+                                    <YAxis
+                                        domain={[0, 100]}
+                                        axisLine={{ stroke: 'black', strokeWidth: 3 }}
+                                        tickLine={{ stroke: 'black', strokeWidth: 2 }}
+                                        tick={{ fill: 'black', fontWeight: 'bold' }}
+                                    />
+                                    <Tooltip content={<NeoTooltip />} />
+                                    <Bar dataKey="value" name="Score" radius={[4, 4, 0, 0]}>
+                                        {audioFeatures.map((entry, index) => (
+                                            <Cell
+                                                key={`cell-${index}`}
+                                                fill={
+                                                    entry.feature === "Happy" ? "hsl(84, 100%, 73%)" :
+                                                        entry.feature === "Sad" ? "hsl(210, 40%, 80%)" :
+                                                            entry.feature === "Aggressive" ? "hsl(359, 100%, 80%)" :
+                                                                entry.feature === "Relaxed" ? "hsl(180, 60%, 75%)" :
+                                                                    "hsl(280, 60%, 75%)"
+                                                }
+                                                stroke="black"
+                                                strokeWidth={3}
+                                            />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Recommended Artists - Full Width */}
+                <div className="mt-12">
+                    <Card className="bg-primary neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <Zap className="w-6 h-6" />
+                                RECOMMENDED ARTISTS
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Cumulative Vibe Score */}
+                                <div className="bg-black text-white p-6 border-2 border-black">
+                                    <p className="text-xs font-bold uppercase mb-2">Your Cumulative Vibe Score</p>
+                                    <p className="text-5xl font-black mb-2">
+                                        {moodData?.has_data ? (
+                                            Math.round(
+                                                (moodData.average_moods.avg_happy * 100 * 0.3) +
+                                                (moodData.average_moods.avg_relaxed * 100 * 0.25) +
+                                                (moodData.average_moods.avg_danceability * 100 * 0.25) +
+                                                ((1 - moodData.average_moods.avg_sad) * 100 * 0.2)
+                                            )
+                                        ) : 0}
+                                        <span className="text-2xl">/100</span>
+                                    </p>
+                                    <p className="text-xs opacity-80">
+                                        Based on happiness, relaxation, energy, and positivity
+                                    </p>
+                                </div>
+
+                                {/* Artist Recommendations List */}
+                                <div className="space-y-4">
+                                    {moodData?.recommended_artists?.slice(0, 3).map((artist, index) => {
+                                        // Calculate match score based on popularity and position
+                                        const matchScore = Math.max(50, 100 - (index * 10) - (100 - artist.popularity));
+
+                                        return (
+                                            <div key={index} className="space-y-2 pb-4 border-b-2 border-black last:border-0">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1">
+                                                        <p className="font-black text-lg">{artist.name}</p>
+                                                        <p className="text-xs font-medium opacity-70">
+                                                            {artist.genres?.split(',').slice(0, 2).join(', ') || 'Various genres'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="font-black text-sm">{matchScore}%</p>
+                                                        <p className="text-xs opacity-70">Match</p>
+                                                    </div>
+                                                </div>
+                                                <div className="w-full h-3 bg-white border-2 border-black">
+                                                    <div
+                                                        className="h-full bg-black transition-all duration-500"
+                                                        style={{ width: `${matchScore}%` }}
+                                                    />
+                                                </div>
+                                                <div className="flex gap-2 text-xs">
+                                                    <span className="bg-white border border-black px-2 py-0.5 font-bold">
+                                                        Pop: {artist.popularity}
+                                                    </span>
+                                                    <span className="bg-white border border-black px-2 py-0.5 font-bold">
+                                                        {(artist.followers / 1000000).toFixed(1)}M followers
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    }) || (
+                                            <p className="text-center text-sm font-medium opacity-70">
+                                                No artist data available yet
+                                            </p>
+                                        )}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Top Tracks Table - Full Width */}
+                <div className="mt-12">
+                    <Card className="bg-white neo-brutal">
+                        <CardHeader className="border-b-3 border-black">
+                            <CardTitle className="flex items-center gap-2 text-2xl">
+                                <Music className="w-6 h-6" />
+                                TOP TRACKS
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead>
+                                        <tr className="border-b-3 border-black bg-black text-white">
+                                            <th className="p-4 text-left font-black uppercase">#</th>
+                                            <th className="p-4 text-left font-black uppercase">Track</th>
+                                            <th className="p-4 text-left font-black uppercase">Artist</th>
+                                            <th className="p-4 text-left font-black uppercase">Vibe</th>
+                                            <th className="p-4 text-left font-black uppercase">Energy</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {moodData?.top_tracks?.map((track, index) => {
+                                            const dominantMood = Math.max(
+                                                track.mood_happy,
+                                                track.mood_sad,
+                                                track.mood_aggressive,
+                                                track.mood_relaxed
+                                            );
+                                            const moodLabel =
+                                                dominantMood === track.mood_happy ? "Happy" :
+                                                    dominantMood === track.mood_sad ? "Sad" :
+                                                        dominantMood === track.mood_aggressive ? "Aggressive" :
+                                                            "Relaxed";
+
+                                            return (
+                                                <tr
+                                                    key={index}
+                                                    className={`border-b-2 border-black transition-all hover:bg-primary/30 cursor-pointer ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
+                                                >
+                                                    <td className="p-4">
+                                                        <span className="w-8 h-8 flex items-center justify-center bg-black text-white font-black rounded-full text-sm">
+                                                            {index + 1}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 font-bold">{track.name}</td>
+                                                    <td className="p-4 font-medium">{track.artist}</td>
+                                                    <td className="p-4">
+                                                        <span className="bg-accent border-2 border-black px-2 py-1 font-bold text-xs">
+                                                            {moodLabel}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="w-20 h-4 bg-gray-200 border-2 border-black">
+                                                            <div
+                                                                className="h-full bg-primary"
+                                                                style={{ width: `${(track.danceability * 100).toFixed(0)}%` }}
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }) || (
+                                                <tr>
+                                                    <td colSpan="5" className="p-8 text-center font-bold">
+                                                        No tracks analyzed yet
+                                                    </td>
+                                                </tr>
+                                            )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </div>
     )

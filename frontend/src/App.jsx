@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import Home from './pages/Home'
 import MoodAnalysis from './pages/MoodAnalysis'
 import Compare from './pages/Compare'
+import Comparisons from './pages/Comparisons'
 
 function App() {
     return (
@@ -11,6 +12,7 @@ function App() {
                 <Route index element={<Home />} />
                 <Route path="mood-analysis" element={<MoodAnalysis />} />
                 <Route path="compare" element={<Compare />} />
+                <Route path="comparisons" element={<Comparisons />} />
             </Route>
         </Routes>
     )
