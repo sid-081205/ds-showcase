@@ -281,8 +281,8 @@ export default function Compare() {
                     </div>
                     <div>
                         <div className="text-4xl font-black mb-2">3.</div>
-                        <p className="font-bold uppercase mb-1">Mood Comparison & Recommendation</p>
-                        <p className="text-sm font-medium">Moods are compared with friends via a PCA, and a machine learning algorithm is used to predict/recommend new songs (using our merged.csv)</p>
+                        <p className="text-sm font-medium uppercase mb-1">Mood Comparison & Recommendation</p>
+                        <p className="text-sm font-medium">Moods are compared with friends, and a kNN algorithm is used to predict/recommend new songs (using our merged.csv)</p>
                     </div>
                 </div>
             </div>

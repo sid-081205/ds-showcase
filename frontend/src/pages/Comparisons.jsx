@@ -449,7 +449,7 @@ export default function Comparisons() {
                     </CardHeader>
                     <CardContent className="p-8">
                         <p className="font-bold text-lg mb-8">
-                            Based on your combined mood profiles and a PCA-based machine learning algorithm, we think you'd both vibe with these tracks:
+                            Based on your combined mood profiles and a kNN machine learning algorithm, we think you'd both vibe with these tracks:
                         </p>
                         <div className="space-y-4">
                             {comparisonData.joint_recommendations.map((track, index) => (

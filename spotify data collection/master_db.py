@@ -170,7 +170,18 @@ def update_user_tokens(user_id, access_token, refresh_token, token_expiry):
     
     conn.commit()
     conn.close()
+def reset_stuck_analyses():
+    """Reset all users with 'running' status back to 'pending' on startup"""
+    conn = sqlite3.connect(MASTER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET analysis_status = 'pending' WHERE analysis_status = 'running'")
+    conn.commit()
+    conn.close()
+    print("🧹 Reset any stuck analysis statuses")
 
 # Initialize master database on import
 if not os.path.exists(MASTER_DB_PATH):
     init_master_db()
+
+# Reset any stuck analyses on startup
+reset_stuck_analyses()

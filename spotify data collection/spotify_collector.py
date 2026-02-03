@@ -10,12 +10,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import master_db
 
-# Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-
-# Configuration
-# Ensure the following environment variables are set:
-# SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, SPOTIPY_REDIRECT_URI
 scope = "user-top-read,user-read-recently-played,user-follow-read,playlist-read-private,playlist-read-collaborative,user-library-read"
 
 app = Flask(__name__)
@@ -61,6 +56,20 @@ sp_oauth = SpotifyOAuth(
     cache_path=CACHE_PATH,
     show_dialog=True
 )
+
+def get_current_user_db_path():
+    """Helper to get the database path for the currently logged-in main user"""
+    try:
+        token_info = sp_oauth.get_cached_token()
+        if token_info:
+            temp_sp = spotipy.Spotify(auth=token_info['access_token'])
+            user_info = temp_sp.current_user()
+            user = master_db.get_user_by_spotify_id(user_info['id'])
+            if user:
+                return user['db_path']
+    except Exception as e:
+        print(f"Error getting current user db path: {e}")
+    return DB_PATH
 
 def setup_db():
     conn = sqlite3.connect(DB_PATH)
@@ -535,9 +544,8 @@ def status():
             except:
                 pass
     else:
-        # Not connected - ensure database is empty as per requirement
+        # Not connected - we skip aggressive clearing here to allow multi-user data to persist
         if not progress_state["is_running"]:
-            clear_db()
             progress_state["user_info"] = None
             if progress_state["status"] == "Complete":
                 progress_state["status"] = "idle"
@@ -637,9 +645,31 @@ def run_analyzer():
         return emoji_pattern.sub(r'', text).strip()
     
     try:
+        # Determine which database to use
+        db_path_to_use = get_current_user_db_path()
+        print(f"🔬 Analyzer using database: {db_path_to_use}")
+        
         # Get total tracks to analyze (only top_tracks now)
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(db_path_to_use)
         cursor = conn.cursor()
+        
+        # Ensure table exists
+        cursor.execute('''CREATE TABLE IF NOT EXISTS top_tracks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spotify_id TEXT UNIQUE,
+            name TEXT,
+            artist TEXT,
+            album TEXT,
+            isrc TEXT,
+            link TEXT,
+            danceability REAL,
+            mood_happy REAL,
+            mood_sad REAL,
+            mood_aggressive REAL,
+            mood_relaxed REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )''')
+        
         cursor.execute("SELECT COUNT(*) FROM top_tracks WHERE danceability IS NULL")
         total_tracks = cursor.fetchone()[0]
         analyzer_state["total"] = total_tracks
@@ -658,7 +688,7 @@ def run_analyzer():
         env['PYTHONUNBUFFERED'] = '1'  # Force unbuffered output
         
         process = subprocess.Popen(
-            ["python3", "-u", analyzer_path],  # -u flag for unbuffered output
+            ["python3", "-u", analyzer_path, db_path_to_use],  # Pass db_path as argument
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -726,20 +756,63 @@ def run_analyzer():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    """Start the analyzer in a background thread"""
+    """Start the analyzer in a background thread, optionally triggering collection first"""
     global analyzer_state
     
     if analyzer_state["is_running"]:
         return jsonify({"error": "Analyzer is already running"}), 400
     
-    # Reset state
+    # 1. Check if authenticated
+    token_info = sp_oauth.get_cached_token()
+    if not token_info:
+        return jsonify({"error": "User not authenticated"}), 401
+    
+    sp = spotipy.Spotify(auth=token_info['access_token'])
+    try:
+        user_info = sp.current_user()
+        user = master_db.get_user_by_spotify_id(user_info['id'])
+        if not user:
+            # Auto-import if missing
+            user = master_db.add_user(
+                spotify_user_id=user_info['id'],
+                display_name=user_info['display_name'],
+                email=user_info.get('email', ''),
+                access_token=token_info['access_token'],
+                refresh_token=token_info.get('refresh_token', ''),
+                token_expiry=token_info['expires_at']
+            )
+            setup_user_db(user['db_path'])
+    except Exception as e:
+        return jsonify({"error": f"Failed to identify user: {str(e)}"}), 500
+
+    # 2. Check if data exists, if not trigger full collection+analysis
+    db_path = user['db_path']
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM top_tracks")
+        count = cursor.fetchone()[0]
+        conn.close()
+        
+        if count == 0:
+            print(f"🔄 No data found for user {user['id']}, triggering full collection...")
+            # Use the existing background task which handles collection + analysis
+            thread = threading.Thread(target=collect_and_analyze_task, args=(sp, user))
+            thread.daemon = True
+            thread.start()
+            return jsonify({"status": "collection_started"})
+    except Exception as e:
+        print(f"⚠️ Error checking track count: {e}")
+
+    # Reset analyzer state for main UI tracking
     analyzer_state = {
         "is_running": True,
         "progress": 0,
         "total": 0,
         "analyzed": 0,
         "current_track": "",
-        "status": "Starting..."
+        "status": "Starting...",
+        "output_lines": []
     }
     
     # Run in background thread
@@ -757,7 +830,8 @@ def analyzer_status():
 def get_mood_data():
     """Get comprehensive mood analysis data from the database"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        db_path = get_current_user_db_path()
+        conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row  # This enables column access by name
         cursor = conn.cursor()
         
@@ -1009,16 +1083,46 @@ def get_users():
 
 def collect_and_analyze_task(sp, user):
     """Background task to collect and then analyze user data"""
+    global analyzer_state
     try:
         user_id = user['id']
         db_path = user['db_path']
         
+        # Reset analyzer state for main UI tracking if this is the main user
+        token_info = sp_oauth.get_cached_token()
+        is_main = False
+        if token_info:
+            try:
+                temp_sp = spotipy.Spotify(auth=token_info['access_token'])
+                me = temp_sp.current_user()
+                if me['id'] == user['spotify_user_id']:
+                    is_main = True
+            except: pass
+
+        if is_main:
+            analyzer_state = {
+                "is_running": True,
+                "progress": 5,
+                "total": 0,
+                "analyzed": 0,
+                "current_track": "",
+                "status": "Collecting Data...",
+                "output_lines": ["Starting Spotify data collection..."]
+            }
+
         # Update status
         master_db.update_user_analysis_status(user_id, 'running', 5)
         
         # 1. Collect Data
         print(f"📊 [User {user_id}] Starting data collection...")
         collect_all_data_for_user(sp, db_path, user_id)
+        
+        if is_main:
+            analyzer_state["status"] = "Collection complete, starting analyzer..."
+            analyzer_state["progress"] = 40
+            analyzer_state["output_lines"].append("✅ Data collection complete.")
+            analyzer_state["output_lines"].append("🔬 Starting mood analysis...")
+
         master_db.update_user_analysis_status(user_id, 'running', 40)
         
         # 2. Run Analyzer
@@ -1040,20 +1144,62 @@ def collect_and_analyze_task(sp, user):
             if line:
                 line_str = line.strip()
                 print(f"[User {user_id}] {line_str}")
+                
+                if is_main:
+                    clean_line = line_str # Could use remove_emojis but keeping it simple
+                    analyzer_state["output_lines"].append(clean_line)
+                    if len(analyzer_state["output_lines"]) > 10:
+                        analyzer_state["output_lines"].pop(0)
+
                 # Try to parse progress if output contains it
-                if "Processing" in line_str:
+                if "Analyzing table:" in line_str:
+                    master_db.update_user_analysis_status(user_id, 'running', 45)
+                    if is_main:
+                        analyzer_state["status"] = f"Analyzing {line_str.split(':')[-1].strip()}..."
+                        analyzer_state["progress"] = 45
+                elif "Processing" in line_str:
                     master_db.update_user_analysis_status(user_id, 'running', 60)
+                    if is_main:
+                        analyzer_state["status"] = "Processing tracks..."
+                        analyzer_state["progress"] = 60
+                elif "Analyzing:" in line_str:
+                    # Update progress based on [x/y] if present
+                    import re
+                    match = re.search(r'\[(\d+)/(\d+)\]', line_str)
+                    if match:
+                        current = int(match.group(1))
+                        total = int(match.group(2))
+                        progress = 40 + int((current / total) * 50)
+                        master_db.update_user_analysis_status(user_id, 'running', progress)
+                        if is_main:
+                            analyzer_state["progress"] = progress
+                    
+                    if is_main:
+                        # Extract artist - track
+                        parts = line_str.split("Analyzing: ")
+                        if len(parts) > 1:
+                            analyzer_state["current_track"] = parts[1]
                 elif "Analysis complete" in line_str:
                     master_db.update_user_analysis_status(user_id, 'running', 95)
+                    if is_main:
+                        analyzer_state["status"] = "Analysis nearly complete..."
+                        analyzer_state["progress"] = 95
         
         process.wait()
         
         if process.returncode == 0:
             print(f"✅ [User {user_id}] Analysis complete!")
             master_db.update_user_analysis_status(user_id, 'completed', 100)
+            if is_main:
+                analyzer_state["status"] = "Analysis complete!"
+                analyzer_state["progress"] = 100
+                analyzer_state["is_running"] = False
         else:
             print(f"❌ [User {user_id}] Analyzer failed with code {process.returncode}")
             master_db.update_user_analysis_status(user_id, 'failed', 0)
+            if is_main:
+                analyzer_state["status"] = "Analysis failed"
+                analyzer_state["is_running"] = False
             
     except Exception as e:
         print(f"❌ [User {user_id}] Error in background task: {e}")
